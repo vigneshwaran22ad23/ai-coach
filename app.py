@@ -568,7 +568,8 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
       <button class="nl" onclick="nav(2)">Review</button>
       <button class="nl" onclick="nav(3)">Analytics</button>
       <button class="nl" onclick="nav(4)">Schedule</button>
-      <button class="nl" onclick="nav(5)">Chat</button>
+      <button class="nl" onclick="nav(5)">Upload</button>
+      <button class="nl" onclick="nav(6)">Chat</button>
     </div>
     <div class="nr"><div class="av" id="AV">U</div><span id="UN"></span><button class="btn bs" style="padding:4px 10px;font-size:.72rem" onclick="doLogout()">Logout</button></div>
   </nav>
@@ -692,6 +693,25 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
     <div class="stt">Recent Sessions</div><div id="RL"><div class="dim sm">No sessions yet.</div></div>
   </div>
 
+  <!-- UPLOAD -->
+  <div id="P5" class="H wrap">
+    <div class="stt">📄 Upload Notes → Generate MCQs</div>
+    <div class="card mb">
+      <div class="f"><label>Subject</label><select id="upSubj"></select></div>
+      <div class="f"><label>Paste your notes here</label>
+        <textarea id="upText" rows="7" style="resize:vertical" placeholder="Paste chapter content, formulae, notes…"></textarea>
+      </div>
+      <div id="upDrop" style="border:2px dashed #2d3148;border-radius:9px;padding:20px;text-align:center;cursor:pointer;margin-top:8px" onclick="document.getElementById('upFile').click()">
+        <div style="font-size:1.7rem;margin-bottom:4px">📁</div>
+        <div style="font-weight:600;font-size:.83rem">Or drop a .txt file here</div>
+        <input type="file" id="upFile" accept=".txt" class="H" onchange="readUpFile(event)"/>
+      </div>
+    </div>
+    <button class="btn bp bw" id="upBtn" onclick="genUploadMCQ()">Generate MCQs →</button>
+    <div id="upLoad" class="H" style="text-align:center;padding:22px"><div class="spin"></div><div class="dim sm" style="margin-top:5px">AI reading your notes…</div></div>
+    <div id="upRes" class="H" style="margin-top:16px"></div>
+  </div>
+
   <!-- SCHEDULE -->
   <div id="P4" class="H wrap">
     <div class="row between mb"><div class="stt" style="margin:0">📅 AI Study Schedule</div><button class="btn bp" style="font-size:.76rem;padding:5px 12px" id="schBtn" onclick="genSched()">Generate My Schedule →</button></div>
@@ -701,7 +721,7 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
   </div>
 
   <!-- CHAT -->
-  <div id="P5" class="H" style="height:calc(100vh - 54px);display:none;flex-direction:column">
+  <div id="P6" class="H" style="height:calc(100vh - 54px);display:none;flex-direction:column">
     <div style="max-width:700px;margin:0 auto;width:100%;padding:0 18px;flex:1;display:flex;flex-direction:column">
       <div id="CM" style="flex:1;overflow-y:auto;padding:16px 0;display:flex;flex-direction:column;gap:10px">
         <div style="align-self:flex-start;background:#1a1d27;border:1px solid #2d3148;border-radius:13px;border-bottom-left-radius:3px;padding:10px 14px;font-size:.84rem;max-width:85%;line-height:1.6">
@@ -793,9 +813,9 @@ function doLogout(){ST.uid=null;ST.running=false;ST.qs=[];stopCam();H('APP');SH(
 
 function nav(i){
   if(i===1&&ST.running)return;
-  [0,1,2,3,4,5].forEach(n=>{const p=$('P'+n);if(!p)return;if(n===i){p.classList.remove('H');if(n===5)p.style.display='flex';}else{p.classList.add('H');if(n===5)p.style.display='none';}});
+  [0,1,2,3,4,5,6].forEach(n=>{const p=$('P'+n);if(!p)return;if(n===i){p.classList.remove('H');if(n===6)p.style.display='flex';}else{p.classList.add('H');if(n===6)p.style.display='none';}});
   document.querySelectorAll('.nl').forEach((b,n)=>n===i?b.classList.add('on'):b.classList.remove('on'));
-  if(i===0)loadStats();if(i===2)loadReview();if(i===3)loadAnalytics();if(i===1&&!ST.running)loadSubjs();
+  if(i===0)loadStats();if(i===2)loadReview();if(i===3)loadAnalytics();if(i===5)loadUpSubjs();if(i===1&&!ST.running)loadSubjs();
 }
 
 async function setExam(e){ST.exam=e;$('HE').textContent='Preparing for '+e;H('EP');SH('QA');try{await fetch('/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:ST.uid,exam_type:e})});}catch(e){}toast(e+' activated 🎯','ok');loadStats();}
@@ -892,7 +912,7 @@ function showLvT(ol,nl,r){const t=$('lvlT'),up=nl==='bright'||(nl==='mid'&&ol===
 
 async function submitSR(f){H('SRM');ST.sf=f;ST.selfAt+=10;try{await fetch(`/api/self-report?user_id=${ST.uid}&session_id=${ST.sid}&feeling=${f}`,{method:'POST'});}catch(e){}if(f==='tired')chkFAT();else toast(f==='sharp'?'😊 Great focus!':'😐 Stretch soon','ok');}
 
-function explainWrong(){nav(5);setTimeout(()=>{$('CI').value='Explain why I got this wrong with step-by-step solution.';sendChat(true);},200);}
+function explainWrong(){nav(6);setTimeout(()=>{$('CI').value='Explain why I got this wrong with step-by-step solution.';sendChat(true);},200);}
 
 async function endQuiz(){
   clearInterval(ST.tint);clearInterval(ST.eint);ST.running=false;stopCam();
@@ -960,6 +980,77 @@ async function sendChat(useWrong=false){
   }catch(e){bot.textContent='Server error.';}
   msgs.scrollTop=msgs.scrollHeight;
 }
+
+// ── UPLOAD ───────────────────────────────────────────────
+function loadUpSubjs(){
+  const exam=ST.exam||'NEET';
+  const subjs=Object.keys(SUBJS[exam]||SUBJS.NEET);
+  const sel=$('upSubj');
+  if(sel) sel.innerHTML=subjs.map(s=>`<option value="${s}">${s}</option>`).join('');
+}
+function readUpFile(e){
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{$('upText').value=ev.target.result.slice(0,5000);toast('File loaded ✓','ok');};
+  rd.readAsText(f);
+}
+async function genUploadMCQ(){
+  const text=$('upText').value.trim();
+  if(!text){toast('Paste your notes first','er');return;}
+  const subj=$('upSubj').value||'General';
+  $('upBtn').disabled=true;SH('upLoad');H('upRes');
+  const fd=new FormData();
+  fd.append('file',new Blob([text],{type:'text/plain'}),'notes.txt');
+  fd.append('exam',ST.exam||'NEET');
+  fd.append('subject',subj);
+  try{
+    const r=await fetch('/api/upload',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'Upload failed');
+    window._uqs=d.questions;
+    $('upRes').innerHTML=`
+      <div class="stt">${d.questions.length} Questions Generated from Your Notes</div>
+      ${d.questions.map((q,i)=>`
+        <div class="card" style="margin-bottom:9px;padding:14px">
+          <div style="font-weight:600;font-size:.85rem;margin-bottom:7px">Q${i+1}: ${q.question.replace(/</g,'&lt;')}</div>
+          <div class="dim sm">${q.options.join(' · ')}</div>
+          <div style="color:#10b981;font-size:.73rem;margin-top:5px">✓ ${q.correct}</div>
+        </div>`).join('')}
+      <button class="btn bp bw mt" onclick="startUploadQuiz()">Start Quiz with These Questions →</button>`;
+    SH('upRes');
+  }catch(e){toast('Failed: '+e.message,'er');}
+  H('upLoad');$('upBtn').disabled=false;
+}
+function startUploadQuiz(){
+  const qs=window._uqs||[];if(!qs.length){toast('No questions generated','er');return;}
+  const subj=$('upSubj').value||'General';
+  ST.qs=qs;ST.qi=0;ST.sc=0;ST.times=[];ST.streak=0;ST.cs=0;ST.ws=0;ST.totalAns=0;
+  ST.subj=subj;ST.top='Upload';ST.sid=Date.now();ST.running=true;ST.mode='normal';ST.lv='mid';
+  // Switch to quiz page and show step 3 directly
+  [0,1,2,3,4,5,6].forEach(n=>{const p=$('P'+n);if(p){p.classList.add('H');if(n===6)p.style.display='none';}});
+  $('P1').classList.remove('H');
+  document.querySelectorAll('.nl').forEach((b,n)=>n===1?b.classList.add('on'):b.classList.remove('on'));
+  gostep(3);
+  $('HI').textContent=subj+' — Uploaded Notes';
+  SH('normHUD');H('examHUD');
+  H('QL');SH('QD');
+  updLvBadge();initFAT();showQ();
+  toast('Quiz started from your notes! 📄','ok');
+}
+
+// Drag and drop for upload
+document.addEventListener('DOMContentLoaded',function(){
+  const dz=document.getElementById('upDrop');
+  if(dz){
+    dz.addEventListener('dragover',e=>{e.preventDefault();dz.style.borderColor='#7c6fff';});
+    dz.addEventListener('dragleave',()=>dz.style.borderColor='#2d3148');
+    dz.addEventListener('drop',e=>{
+      e.preventDefault();dz.style.borderColor='#2d3148';
+      const f=e.dataTransfer.files[0];if(!f)return;
+      const rd=new FileReader();rd.onload=ev=>{$('upText').value=ev.target.result.slice(0,5000);toast('File loaded ✓','ok');};rd.readAsText(f);
+    });
+  }
+});
 
 // ── FATIGUE ──────────────────────────────────────────────
 document.addEventListener('keydown',e=>{const n=Date.now();if(FAT.lk>0){const iv=n-FAT.lk;if(iv<5000){FAT.kt.push(iv);if(FAT.kt.length>20)FAT.kt.shift();}}FAT.lk=n;});
@@ -1062,8 +1153,18 @@ function onFM(res){
   function dist(a,b){return Math.sqrt((lm[a].x-lm[b].x)**2+(lm[a].y-lm[b].y)**2);}
   const ear=((dist(159,145)+dist(158,153))/(2*dist(33,133)+.001)+(dist(386,374)+dist(385,380))/(2*dist(362,263)+.001))/2;
   FAT.eo=Math.min(1,ear/0.25);
-  if(ear<0.21){FAT.cf++;}
-  else{if(FAT.cf>=2&&FAT.cf<=15){FAT.bw.push(Date.now());}FAT.cf=0;}
+  if(ear<0.21){
+    FAT.cf++;
+    // If eyes closed for 90+ frames (~3 seconds at 30fps) → trigger fatigue immediately
+    if(FAT.cf===90){
+      console.log('Eyes fully closed 3s — triggering fatigue');
+      showFAT({'👁 Eyes Closed':3,'⏱ Response':0,'❌ Streak':0});
+    }
+  }
+  else{
+    if(FAT.cf>=2&&FAT.cf<=15){FAT.bw.push(Date.now());}
+    FAT.cf=0;
+  }
   const now=Date.now();FAT.bw=FAT.bw.filter(t=>now-t<60000);FAT.br=FAT.bw.length;
   $('WBR').textContent=FAT.br+'/min';$('WBR').style.color=FAT.br>25||FAT.br<8?'#f87171':'#10b981';
   $('WEO').textContent=Math.round(FAT.eo*100)+'%';$('WEO').style.color=FAT.eo<0.6?'#f87171':'#10b981';
@@ -1080,8 +1181,27 @@ function onFM(res){
   ctx.fillText('EAR:'+ear.toFixed(3)+'  Blinks:'+FAT.bw.length+'  '+Math.round(FAT.eo*100)+'%',4,H2-8);
 }
 function simBlink(vid){
-  const cv=document.createElement('canvas');cv.width=64;cv.height=48;const ctx=cv.getContext('2d');let last=255,det=false;FAT.wa=true;$('WCS').style.background='#f59e0b';$('WCE').textContent='Fallback mode';SH('WCE');
-  function loop(){if(!FAT.wa)return;try{ctx.drawImage(vid,0,0,64,48);}catch(e){return;}const data=ctx.getImageData(0,0,64,48).data;let b=0;for(let i=0;i<data.length;i+=4)b+=data[i];b/=(data.length/4);if(last-b>15&&!det){FAT.bw.push(Date.now());det=true;}else if(last-b<5)det=false;last=b;const now=Date.now();FAT.bw=FAT.bw.filter(t=>now-t<60000);FAT.br=FAT.bw.length;$('WBR').textContent=FAT.br+'/min';setTimeout(loop,100);}loop();
+  const cv=document.createElement('canvas');cv.width=64;cv.height=48;const ctx=cv.getContext('2d');
+  let last=255,det=false,darkFrames=0;FAT.wa=true;
+  $('WCS').style.background='#f59e0b';$('WCE').textContent='Fallback blink mode';SH('WCE');
+  function loop(){
+    if(!FAT.wa)return;
+    try{ctx.drawImage(vid,0,0,64,48);}catch(e){setTimeout(loop,100);return;}
+    const data=ctx.getImageData(0,0,64,48).data;
+    let b=0;for(let i=0;i<data.length;i+=4)b+=data[i];b/=(data.length/4);
+    FAT.eo=Math.min(1,b/200); // rough eye open estimate from brightness
+    $('WEO').textContent=Math.round(FAT.eo*100)+'%';
+    // Blink detection
+    if(last-b>15&&!det){FAT.bw.push(Date.now());det=true;}
+    else if(last-b<5)det=false;
+    last=b;
+    // Dark frame = eyes closed
+    if(b<80){darkFrames++;}else{darkFrames=0;}
+    if(darkFrames===30){showFAT({'👁 Eyes Closed (3s)':3});}// ~3s at 10fps
+    const now=Date.now();FAT.bw=FAT.bw.filter(t=>now-t<60000);FAT.br=FAT.bw.length;
+    $('WBR').textContent=FAT.br+'/min';
+    setTimeout(loop,100);
+  }loop();
 }
 function stopCam(){FAT.wa=false;if(FAT.s){FAT.s.getTracks().forEach(t=>t.stop());FAT.s=null;}H('WCV');}
 </script></body></html>"""
