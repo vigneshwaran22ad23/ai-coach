@@ -447,7 +447,12 @@ def get_paper(paper_id:str):
         raise HTTPException(404,"Paper not found")
     if not os.path.exists(paper["path"]):
         raise HTTPException(404,"Paper file is missing")
-    return FileResponse(paper["path"], media_type="application/pdf", filename=os.path.basename(paper["path"]))
+    return FileResponse(
+        paper["path"],
+        media_type="application/pdf",
+        filename=os.path.basename(paper["path"]),
+        content_disposition_type="inline",
+    )
 
 # ─── LEVEL ────────────────────────────────────────────────────────
 @app.get("/api/level/{sid}")
