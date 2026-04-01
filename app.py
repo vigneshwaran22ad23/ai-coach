@@ -5,7 +5,7 @@ Run: python app.py  →  open http://localhost:8000
 """
 from fastapi import FastAPI, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import sqlite3, hashlib, json, os, requests, re
@@ -18,6 +18,50 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
 DB = "coach.db"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "llama-3.3-70b-versatile"
+
+PREVIOUS_YEAR_PAPERS = [
+    {
+        "id": "jee-main-2025-22-jan-shift-1",
+        "exam": "JEE",
+        "title": "JEE Main 2025 · 22 Jan Shift 1",
+        "year": 2025,
+        "duration_minutes": 180,
+        "questions": 75,
+        "source": "MathonGo",
+        "path": r"C:\Users\venka\Downloads\JEE Main 2025 (22 Jan Shift 1) Previous Year Paper with Answer Keys - MathonGo.pdf",
+    },
+    {
+        "id": "jee-main-2025-22-jan-shift-2",
+        "exam": "JEE",
+        "title": "JEE Main 2025 · 22 Jan Shift 2",
+        "year": 2025,
+        "duration_minutes": 180,
+        "questions": 75,
+        "source": "MathonGo",
+        "path": r"C:\Users\venka\Downloads\JEE Main 2025 (22 Jan Shift 2) Previous Year Paper with Answer Keys - MathonGo.pdf",
+    },
+    {
+        "id": "neet-2024-key-3577818",
+        "exam": "NEET",
+        "title": "NEET 2024 · key_3577818",
+        "year": 2024,
+        "duration_minutes": 200,
+        "questions": 200,
+        "source": "PDF Upload",
+        "path": r"C:\Users\venka\Downloads\key_3577818_2024-05-07 08_07_55 +0000.pdf",
+    },
+    {
+        "id": "neet-2024-key-5057800",
+        "exam": "NEET",
+        "title": "NEET 2024 · key_5057800",
+        "year": 2024,
+        "duration_minutes": 200,
+        "questions": 180,
+        "source": "PDF Upload",
+        "path": r"C:\Users\venka\Downloads\key_5057800_2025-02-17 08_56_28 +0000.pdf",
+    },
+]
+PAPER_INDEX = {paper["id"]: paper for paper in PREVIOUS_YEAR_PAPERS}
 
 # ─── GROQ ──────────────────────────────────────────────────────────
 def groq(prompt, system="", key="", tokens=2048):
@@ -186,9 +230,6 @@ def set_exam(r:ExamReq):
 # ─── QUIZ ─────────────────────────────────────────────────────────
 @app.post("/api/quiz")
 def quiz(r:QuizReq, x_api_key:Optional[str]=Header(default=None)):
-    k = x_api_key or os.environ.get("GROQ_API_KEY","")
-    if not k: raise HTTPException(400,"No GROQ_API_KEY")
-
     # PYQ mode
     if r.mode=="pyq":
         c=getdb()
@@ -200,6 +241,9 @@ def quiz(r:QuizReq, x_api_key:Optional[str]=Header(default=None)):
         sid=c.execute("INSERT INTO quiz_sessions(user_id,subject,topic,started_at,student_level,mode) VALUES(?,?,?,?,?,?)",(r.user_id,r.subject,r.topic,datetime.now().isoformat(),r.level,"pyq")).lastrowid
         c.commit(); c.close()
         return {"sid":sid,"questions":qs,"level":r.level}
+
+    k = x_api_key or os.environ.get("GROQ_API_KEY","")
+    if not k: raise HTTPException(400,"No GROQ_API_KEY")
 
     lvl_map={"bright":"challenging application/analysis requiring deep understanding","mid":"moderate difficulty standard application","low":"foundational basic concepts simple language"}
     ldesc=lvl_map.get(r.level,"moderate difficulty")
@@ -367,7 +411,7 @@ def stats(uid:int):
     c=getdb()
     hourly=c.execute("SELECT hour,AVG(score_avg) as avg,COUNT(*) as n FROM study_sessions WHERE user_id=? GROUP BY hour ORDER BY hour",(uid,)).fetchall()
     subjects=c.execute("SELECT subject,AVG(CAST(score AS REAL)/CASE WHEN total=0 THEN 1 ELSE total END)*100 as ap,COUNT(*) as n,student_level FROM quiz_sessions WHERE user_id=? AND total>0 GROUP BY subject",(uid,)).fetchall()
-    recent=c.execute("SELECT subject,topic,student_level,score,total,mode FROM quiz_sessions WHERE user_id=? ORDER BY id DESC LIMIT 10",(uid,)).fetchall()
+    recent=c.execute("SELECT subject,topic,student_level,score,total,mode FROM quiz_sessions WHERE user_id=? ORDER BY id DESC",(uid,)).fetchall()
     weak_r=c.execute("SELECT topic,subject,AVG(CAST(is_correct AS REAL))*100 as acc,COUNT(*) as n FROM quiz_responses WHERE user_id=? GROUP BY topic HAVING n>=3 ORDER BY acc ASC",(uid,)).fetchall()
     sr_due=c.execute("SELECT COUNT(*) as n FROM spaced_rep WHERE user_id=? AND next_review<=?",(uid,date.today().isoformat())).fetchone()
     fat=c.execute("SELECT AVG(auto_score) as avg FROM fatigue_log WHERE user_id=?",(uid,)).fetchone()
@@ -383,6 +427,27 @@ def stats(uid:int):
             "plan":plan,"weak_topics":[{"topic":r["topic"],"subject":r["subject"],"acc":round(r["acc"],1)} for r in weak_r if r["acc"]<50],
             "strong_topics":[{"topic":r["topic"],"subject":r["subject"],"acc":round(r["acc"],1)} for r in weak_r if r["acc"]>=75],
             "spaced_rep_due":sr_due["n"] if sr_due else 0,"avg_fatigue":round(fat["avg"] or 0,1) if fat else 0}
+
+@app.get("/api/papers")
+def list_papers(exam:Optional[str]=None):
+    exam_key=(exam or "").upper().strip()
+    papers=[]
+    for paper in PREVIOUS_YEAR_PAPERS:
+        if exam_key and paper["exam"]!=exam_key:
+            continue
+        if not os.path.exists(paper["path"]):
+            continue
+        papers.append({k:v for k,v in paper.items() if k!="path"})
+    return {"papers":papers}
+
+@app.get("/api/papers/{paper_id}")
+def get_paper(paper_id:str):
+    paper=PAPER_INDEX.get(paper_id)
+    if not paper:
+        raise HTTPException(404,"Paper not found")
+    if not os.path.exists(paper["path"]):
+        raise HTTPException(404,"Paper file is missing")
+    return FileResponse(paper["path"], media_type="application/pdf", filename=os.path.basename(paper["path"]))
 
 # ─── LEVEL ────────────────────────────────────────────────────────
 @app.get("/api/level/{sid}")
@@ -604,6 +669,13 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
   <div id="P1" class="H">
     <div class="wrap">
       <div id="Q1">
+        <div class="card mb">
+          <div class="row between mb">
+            <div class="stt" style="margin:0">Previous Year Papers</div>
+            <div class="dim sm" id="paperHint">Select your exam to load papers.</div>
+          </div>
+          <div id="paperGrid" class="g2"><div class="dim sm">Choose your exam on the home page to unlock papers.</div></div>
+        </div>
         <div class="row mb between"><div class="stt" style="margin:0">Select Subject</div><div class="row" style="gap:6px"><button class="btn bs" style="font-size:.75rem;padding:5px 11px" onclick="goPYQ()">📋 PYQ</button><button class="btn br" style="font-size:.75rem;padding:5px 11px" onclick="goExam()">⏱️ Exam</button></div></div>
         <div class="g4" id="SG"></div>
       </div>
@@ -662,6 +734,28 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
             <button class="btn bg" onclick="nav(2)">Review Mistakes</button>
             <button class="btn bp" onclick="nav(3)">Analytics →</button>
           </div>
+        </div>
+      </div>
+      <div id="Q5" class="H">
+        <div class="card mb" style="background:linear-gradient(135deg,#1e0808,#1a1d27);border-color:rgba(248,113,113,.35)">
+          <div class="row between mb">
+            <button class="btn bs" style="padding:5px 12px;font-size:.76rem" onclick="exitPaperExam()">← Back</button>
+            <div class="row" style="gap:7px">
+              <button class="btn bs" style="font-size:.74rem;padding:5px 11px" onclick="openPaperFile()">Open PDF</button>
+              <button class="btn br" style="font-size:.74rem;padding:5px 11px" onclick="finishPaperExam()">Finish Exam</button>
+            </div>
+          </div>
+          <div class="row between" style="align-items:flex-start">
+            <div>
+              <div class="stt" style="color:#f87171;margin-bottom:5px">Previous Year Exam Mode</div>
+              <div style="font-size:1rem;font-weight:700" id="paperTitle">—</div>
+              <div class="dim sm mt" id="paperMeta">—</div>
+            </div>
+            <div class="etimer" id="paperTimer">3:00:00</div>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="paperFrame" title="Previous year paper" style="width:100%;height:72vh;border:none;background:#fff"></iframe>
         </div>
       </div>
     </div>
@@ -786,8 +880,9 @@ nav{background:#1a1d27;border-bottom:1px solid #2d3148;padding:0 18px;height:54p
 <div id="toast"></div>
 
 <script>
-const ST={uid:null,uname:null,exam:null,subj:null,top:null,lv:'mid',sid:null,qs:[],qi:0,sc:0,times:[],streak:0,cs:0,ws:0,qstart:0,tint:null,rsecs:300,rint:null,running:false,mode:'normal',esecs:0,eint:null,lastWQ:'',lastWA:'',sf:'',selfAt:10,totalAns:0};
+const ST={uid:null,uname:null,exam:null,subj:null,top:null,lv:'mid',sid:null,qs:[],qi:0,sc:0,times:[],streak:0,cs:0,ws:0,qstart:0,tint:null,rsecs:300,rint:null,running:false,mode:'normal',esecs:0,eint:null,lastWQ:'',lastWA:'',sf:'',selfAt:10,totalAns:0,paperId:null,paperTitle:'',paperMinutes:0};
 const FAT={kt:[],lk:0,sp:[],ac:0,li:-1,wa:false,s:null,br:0,eo:1.0,bw:[],cf:0,score:0,sigs:{}};
+window._papers=[];
 
 const $=id=>document.getElementById(id);
 const H=id=>$(id)&&$(id).classList.add('H');
@@ -808,17 +903,17 @@ async function doSignup(){
   catch(e){showErr('SE','Server error');}
 }
 function showErr(id,m){const e=$(id);e.textContent=m;SH(id);setTimeout(()=>H(id),4000);}
-function boot(d){ST.uid=d.id;ST.uname=d.username;ST.exam=d.exam||null;$('AV').textContent=d.username[0].toUpperCase();$('UN').textContent=d.username;$('HN').textContent=d.username;H('AUTH');SH('APP');if(ST.exam){$('HE').textContent='Preparing for '+ST.exam;H('EP');SH('QA');}loadStats();}
-function doLogout(){ST.uid=null;ST.running=false;ST.qs=[];stopCam();H('APP');SH('AUTH');}
+function boot(d){ST.uid=d.id;ST.uname=d.username;ST.exam=d.exam||null;$('AV').textContent=d.username[0].toUpperCase();$('UN').textContent=d.username;$('HN').textContent=d.username;H('AUTH');SH('APP');if(ST.exam){$('HE').textContent='Preparing for '+ST.exam;H('EP');SH('QA');}loadStats();loadPaperCards();}
+function doLogout(){clearInterval(ST.eint);clearInterval(ST.tint);ST.uid=null;ST.running=false;ST.qs=[];ST.paperId=null;window._papers=[];if($('paperFrame'))$('paperFrame').src='';stopCam();H('APP');SH('AUTH');}
 
 function nav(i){
   if(i===1&&ST.running)return;
   [0,1,2,3,4,5,6].forEach(n=>{const p=$('P'+n);if(!p)return;if(n===i){p.classList.remove('H');if(n===6)p.style.display='flex';}else{p.classList.add('H');if(n===6)p.style.display='none';}});
   document.querySelectorAll('.nl').forEach((b,n)=>n===i?b.classList.add('on'):b.classList.remove('on'));
-  if(i===0)loadStats();if(i===2)loadReview();if(i===3)loadAnalytics();if(i===5)loadUpSubjs();if(i===1&&!ST.running)loadSubjs();
+  if(i===0)loadStats();if(i===2)loadReview();if(i===3)loadAnalytics();if(i===5)loadUpSubjs();if(i===1&&!ST.running){loadSubjs();loadPaperCards();}
 }
 
-async function setExam(e){ST.exam=e;$('HE').textContent='Preparing for '+e;H('EP');SH('QA');try{await fetch('/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:ST.uid,exam_type:e})});}catch(e){}toast(e+' activated 🎯','ok');loadStats();}
+async function setExam(e){ST.exam=e;$('HE').textContent='Preparing for '+e;H('EP');SH('QA');try{await fetch('/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:ST.uid,exam_type:e})});}catch(e){}toast(e+' activated 🎯','ok');loadStats();loadPaperCards();}
 
 async function loadStats(){
   try{
@@ -839,12 +934,36 @@ function qPractice(s,t){ST.subj=s;ST.top=t;nav(1);setTimeout(doQuiz,150);}
 const SUBJS={NEET:{Physics:['Motion & Laws','Work Energy Power','Gravitation','Thermodynamics','Waves','Ray Optics','Electrostatics','Current Electricity','Magnetic Effects','Atoms & Nuclei','Semiconductors'],Chemistry:['Atomic Structure','Chemical Bonding','Thermochemistry','Equilibrium','Electrochemistry','Organic Basics','Hydrocarbons','Biomolecules','Polymers','Coordination Compounds','p-Block'],Biology:['Cell Biology','Cell Division','Genetics','Molecular Inheritance','Evolution','Digestion','Respiration','Excretion','Nervous System','Reproduction','Plant Physiology','Ecology','Biotechnology']},JEE:{Physics:['Kinematics','Laws of Motion','Work Energy','Rotation','Gravitation','SHM','Waves','Electrostatics','Current Electricity','EMI','Optics','Modern Physics'],Chemistry:['Mole Concept','Chemical Bonding','States of Matter','Thermodynamics','Kinetics','Electrochemistry','Organic Reactions','Stereochemistry','Coordination','d-f Block','p-Block'],Mathematics:['Sets','Trigonometry','Complex Numbers','Quadratics','Sequences','Binomial','Coordinate Geometry','3D Geometry','Vectors','Limits','Derivatives','Integration','Differential Equations','Probability','Matrices']}};
 const ICONS={Physics:'⚡',Chemistry:'🧪',Biology:'🧬',Mathematics:'📐'};
 
+async function loadPaperCards(){
+  const grid=$('paperGrid'),hint=$('paperHint');
+  if(!grid||!hint)return;
+  if(!ST.exam){
+    hint.textContent='Select your exam to load papers.';
+    grid.innerHTML='<div class="dim sm">Choose your exam on the home page to unlock papers.</div>';
+    window._papers=[];
+    return;
+  }
+  hint.textContent='Loading papers…';
+  grid.innerHTML='<div class="dim sm">Loading papers…</div>';
+  try{
+    const r=await fetch('/api/papers?exam='+encodeURIComponent(ST.exam));
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'Could not load papers');
+    window._papers=d.papers||[];
+    hint.textContent=window._papers.length?`${window._papers.length} papers ready`:'No papers added yet';
+    grid.innerHTML=window._papers.length?window._papers.map(p=>`<div class="card" style="padding:15px;border-color:rgba(248,113,113,.22)"><div class="row between" style="align-items:flex-start;margin-bottom:8px"><div><div style="font-weight:700;font-size:.92rem">${p.title}</div><div class="dim sm" style="margin-top:4px">${p.source} · ${p.year}</div></div><span style="font-size:.68rem;background:rgba(248,113,113,.12);color:#f87171;padding:3px 8px;border-radius:999px;font-weight:700">${p.exam}</span></div><div class="dim sm" style="line-height:1.6;margin-bottom:12px">${p.questions} questions · ${Math.floor(p.duration_minutes/60)}h ${p.duration_minutes%60}m</div><button class="btn br bw" onclick="startPaperExam('${p.id}')">Start Exam Mode →</button></div>`).join(''):'<div class="dim sm">No papers found for this exam yet.</div>';
+  }catch(e){
+    window._papers=[];
+    hint.textContent='Paper library unavailable';
+    grid.innerHTML='<div class="dim sm">Could not load previous year papers right now.</div>';
+  }
+}
 function loadSubjs(){gostep(1);$('SG').innerHTML='';Object.keys(SUBJS[ST.exam||'NEET']||SUBJS.NEET).forEach(s=>{const d=document.createElement('div');d.className='tile';d.innerHTML=`<div style="font-size:1.7rem;margin-bottom:5px">${ICONS[s]||'📖'}</div><div style="font-weight:700;font-size:.88rem">${s}</div>`;d.onclick=()=>pickSubj(s);$('SG').appendChild(d);});}
 function pickSubj(s){ST.subj=s;$('SL').textContent=s;$('TC').innerHTML='';(SUBJS[ST.exam||'NEET']?.[s]||[]).forEach(t=>{const c=document.createElement('div');c.className='chip';c.textContent=t;c.onclick=()=>pickTop(t,c);$('TC').appendChild(c);});H('TC2');gostep(2);}
 function pickTop(t,el){ST.top=t;document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on');$('TN').textContent=ST.subj+' → '+t;SH('TC2');}
-function gostep(n){[1,2,3,4].forEach(i=>i===n?$('Q'+i).classList.remove('H'):$('Q'+i).classList.add('H'));if(n<=2){ST.qs=[];ST.qi=0;ST.sc=0;ST.running=false;ST.mode='normal';H('examHUD');SH('normHUD');}}
-function goPYQ(){if(!ST.subj){toast('Select a subject first','er');nav(1);return;}ST.mode='pyq';doQuiz();}
-function goExam(){if(!ST.subj||!ST.top){toast('Select subject and topic first','er');nav(1);return;}ST.mode='exam';doQuiz();}
+function gostep(n){[1,2,3,4,5].forEach(i=>i===n?$('Q'+i).classList.remove('H'):$('Q'+i).classList.add('H'));if(n<=2){ST.qs=[];ST.qi=0;ST.sc=0;ST.running=false;ST.mode='normal';ST.paperId=null;clearInterval(ST.eint);if($('paperFrame'))$('paperFrame').src='';H('examHUD');SH('normHUD');}}
+function goPYQ(){if(!ST.subj){nav(1);toast('Select a subject to start PYQ mode','ok');return;}ST.mode='pyq';doQuiz();}
+function goExam(){if(!ST.subj||!ST.top){nav(1);toast('Select a subject and topic to start Exam mode','ok');return;}ST.mode='exam';doQuiz();}
 
 async function doQuiz(){
   if(!ST.subj)return;if(ST.mode!=='pyq'&&!ST.top){toast('Pick a topic first','er');return;}
@@ -861,7 +980,37 @@ async function doQuiz(){
   }catch(e){toast('Quiz failed: '+e.message,'er');console.error(e);gostep(2);}
 }
 
-function startETimer(){ST.esecs=10800;clearInterval(ST.eint);ST.eint=setInterval(()=>{ST.esecs--;const h=Math.floor(ST.esecs/3600),m=Math.floor((ST.esecs%3600)/60),s=ST.esecs%60;$('eTimer').textContent=h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');$('eTimer').style.color=ST.esecs<600?'#f87171':'#e2e8f0';if(ST.esecs<=0){clearInterval(ST.eint);toast('Time up!','er');endQuiz();}},1000);}
+function renderTimer(id,secs){
+  const el=$(id);if(!el)return;
+  const safe=Math.max(0,secs),h=Math.floor(safe/3600),m=Math.floor((safe%3600)/60),s=safe%60;
+  el.textContent=h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  el.style.color=safe<600?'#f87171':'#e2e8f0';
+}
+function startETimer(total=10800,target='eTimer',onDone=endQuiz){
+  ST.esecs=total;clearInterval(ST.eint);renderTimer(target,ST.esecs);
+  ST.eint=setInterval(()=>{ST.esecs--;renderTimer(target,ST.esecs);if(ST.esecs<=0){clearInterval(ST.eint);toast('Time up!','er');onDone(true);}},1000);
+}
+function openPaperFile(){if(ST.paperId)window.open('/api/papers/'+encodeURIComponent(ST.paperId),'_blank');}
+function startPaperExam(paperId){
+  const paper=(window._papers||[]).find(p=>p.id===paperId);
+  if(!paper){toast('Paper not found','er');return;}
+  clearInterval(ST.tint);stopCam();
+  ST.qs=[];ST.qi=0;ST.sc=0;ST.running=true;ST.mode='paper';ST.paperId=paper.id;ST.paperTitle=paper.title;ST.paperMinutes=paper.duration_minutes;
+  $('paperTitle').textContent=paper.title;
+  $('paperMeta').textContent=`${paper.exam} · ${paper.questions} questions · ${Math.floor(paper.duration_minutes/60)}h ${paper.duration_minutes%60}m`;
+  $('paperFrame').src='/api/papers/'+encodeURIComponent(paper.id);
+  gostep(5);
+  startETimer(paper.duration_minutes*60,'paperTimer',finishPaperExam);
+}
+function finishPaperExam(auto=false){
+  const title=ST.paperTitle||'paper exam';
+  clearInterval(ST.eint);
+  ST.running=false;ST.mode='normal';ST.paperId=null;ST.paperTitle='';ST.paperMinutes=0;
+  if($('paperFrame'))$('paperFrame').src='';
+  gostep(1);
+  toast(auto?`Time up for ${title}`:`Closed ${title}`,auto?'er':'ok');
+}
+function exitPaperExam(){finishPaperExam(false);}
 
 async function showQ(){
   const q=ST.qs[ST.qi];if(!q){endQuiz();return;}
