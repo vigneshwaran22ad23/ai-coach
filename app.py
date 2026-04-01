@@ -18,6 +18,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
 DB = "coach.db"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "llama-3.3-70b-versatile"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+PAPERS_DIR = os.path.join(APP_DIR, "assets", "papers")
+
+def paper_path(filename):
+    candidates = [
+        os.path.join(PAPERS_DIR, filename),
+        os.path.join(APP_DIR, filename),
+        os.path.join(os.path.expanduser("~"), "Downloads", filename),
+        os.path.join(r"C:\Users\venka\Downloads", filename),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
 
 PREVIOUS_YEAR_PAPERS = [
     {
@@ -28,7 +42,7 @@ PREVIOUS_YEAR_PAPERS = [
         "duration_minutes": 180,
         "questions": 75,
         "source": "MathonGo",
-        "path": r"C:\Users\venka\Downloads\JEE Main 2025 (22 Jan Shift 1) Previous Year Paper with Answer Keys - MathonGo.pdf",
+        "path": paper_path("JEE Main 2025 (22 Jan Shift 1) Previous Year Paper with Answer Keys - MathonGo.pdf"),
     },
     {
         "id": "jee-main-2025-22-jan-shift-2",
@@ -38,7 +52,7 @@ PREVIOUS_YEAR_PAPERS = [
         "duration_minutes": 180,
         "questions": 75,
         "source": "MathonGo",
-        "path": r"C:\Users\venka\Downloads\JEE Main 2025 (22 Jan Shift 2) Previous Year Paper with Answer Keys - MathonGo.pdf",
+        "path": paper_path("JEE Main 2025 (22 Jan Shift 2) Previous Year Paper with Answer Keys - MathonGo.pdf"),
     },
     {
         "id": "neet-2024-key-3577818",
@@ -48,7 +62,7 @@ PREVIOUS_YEAR_PAPERS = [
         "duration_minutes": 200,
         "questions": 200,
         "source": "PDF Upload",
-        "path": r"C:\Users\venka\Downloads\key_3577818_2024-05-07 08_07_55 +0000.pdf",
+        "path": paper_path("key_3577818_2024-05-07 08_07_55 +0000.pdf"),
     },
     {
         "id": "neet-2024-key-5057800",
@@ -58,7 +72,7 @@ PREVIOUS_YEAR_PAPERS = [
         "duration_minutes": 200,
         "questions": 180,
         "source": "PDF Upload",
-        "path": r"C:\Users\venka\Downloads\key_5057800_2025-02-17 08_56_28 +0000.pdf",
+        "path": paper_path("key_5057800_2025-02-17 08_56_28 +0000.pdf"),
     },
 ]
 PAPER_INDEX = {paper["id"]: paper for paper in PREVIOUS_YEAR_PAPERS}
@@ -908,8 +922,17 @@ async function doSignup(){
   catch(e){showErr('SE','Server error');}
 }
 function showErr(id,m){const e=$(id);e.textContent=m;SH(id);setTimeout(()=>H(id),4000);}
-function boot(d){ST.uid=d.id;ST.uname=d.username;ST.exam=d.exam||null;$('AV').textContent=d.username[0].toUpperCase();$('UN').textContent=d.username;$('HN').textContent=d.username;H('AUTH');SH('APP');if(ST.exam){$('HE').textContent='Preparing for '+ST.exam;H('EP');SH('QA');}loadStats();loadPaperCards();}
-function doLogout(){clearInterval(ST.eint);clearInterval(ST.tint);ST.uid=null;ST.running=false;ST.qs=[];ST.paperId=null;window._papers=[];if($('paperFrame'))$('paperFrame').src='';stopCam();H('APP');SH('AUTH');}
+function syncExamHome(){
+  if(ST.exam){
+    $('HE').textContent='Preparing for '+ST.exam;
+    H('EP');SH('QA');
+  }else{
+    $('HE').textContent='Choose your exam below';
+    SH('EP');H('QA');
+  }
+}
+function boot(d){ST.uid=d.id;ST.uname=d.username;ST.exam=d.exam||null;$('AV').textContent=d.username[0].toUpperCase();$('UN').textContent=d.username;$('HN').textContent=d.username;H('AUTH');SH('APP');syncExamHome();loadStats();loadPaperCards();}
+function doLogout(){clearInterval(ST.eint);clearInterval(ST.tint);ST.uid=null;ST.uname=null;ST.exam=null;ST.subj=null;ST.top=null;ST.running=false;ST.qs=[];ST.paperId=null;window._papers=[];if($('paperFrame'))$('paperFrame').src='';H('weakBox');if($('weakList'))$('weakList').innerHTML='';syncExamHome();stopCam();H('APP');SH('AUTH');}
 
 function nav(i){
   if(i===1&&ST.running)return;
@@ -918,7 +941,7 @@ function nav(i){
   if(i===0)loadStats();if(i===2)loadReview();if(i===3)loadAnalytics();if(i===5)loadUpSubjs();if(i===1&&!ST.running){loadSubjs();loadPaperCards();}
 }
 
-async function setExam(e){ST.exam=e;$('HE').textContent='Preparing for '+e;H('EP');SH('QA');try{await fetch('/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:ST.uid,exam_type:e})});}catch(e){}toast(e+' activated 🎯','ok');loadStats();loadPaperCards();}
+async function setExam(e){ST.exam=e;syncExamHome();try{await fetch('/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:ST.uid,exam_type:e})});}catch(e){}toast(e+' activated 🎯','ok');loadStats();loadPaperCards();}
 
 async function loadStats(){
   try{
